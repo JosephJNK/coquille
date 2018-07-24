@@ -1,3 +1,5 @@
+Note: This is a fork of the plugin at https://github.com/the-lambda-church/coquille that seeks to address some issues with newer versions of Coq. This fork contains some fixes, but some of its behavior is incomplete.
+
 Coquille
 ========
 

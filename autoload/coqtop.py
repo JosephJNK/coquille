@@ -7,12 +7,13 @@ import signal
 from collections import deque, namedtuple
 
 Ok = namedtuple('Ok', ['val', 'msg'])
-Err = namedtuple('Err', ['err'])
+Err = namedtuple('Err', ['loc_e', 'loc_s', 'msg'])
 
 Inl = namedtuple('Inl', ['val'])
 Inr = namedtuple('Inr', ['val'])
 
 StateId = namedtuple('StateId', ['id'])
+RouteId = namedtuple('RouteId', ['id'])
 Option = namedtuple('Option', ['val'])
 
 OptionState = namedtuple('OptionState', ['sync', 'depr', 'name', 'value'])
@@ -29,8 +30,7 @@ def parse_response(xml):
     if xml.get('val') == 'good':
         return Ok(parse_value(xml[0]), None)
     elif xml.get('val') == 'fail':
-        print('err: %s' % ET.tostring(xml))
-        return Err(parse_error(xml))
+        return parse_error(xml)
     else:
         assert False, 'expected "good" or "fail" in <value>'
 
@@ -86,7 +86,10 @@ def parse_value(xml):
         return ''.join(xml.itertext())
 
 def parse_error(xml):
-    return ET.fromstring(re.sub(r"<state_id val=\"\d+\" />", '', ET.tostring(xml)))
+    loc_e = xml.get('loc_e')
+    loc_s = xml.get('loc_s')
+    msg = format_info_response(xml.find('.//richpp'))
+    return Err(loc_e, loc_s, msg)
 
 def build(tag, val=None, children=()):
     attribs = {'val': val} if val is not None else {}
@@ -114,6 +117,8 @@ def encode_value(v):
         return xml
     elif isinstance(v, StateId):
         return build('state_id', str(v.id))
+    elif isinstance(v, RouteId):
+        return build('route_id', str(v.id))
     elif isinstance(v, list):
         return build('list', None, [encode_value(c) for c in v])
     elif isinstance(v, Option):
@@ -139,6 +144,7 @@ coqtop = None
 states = []
 state_id = None
 root_state = None
+route_id = 0
 
 def kill_coqtop():
     global coqtop
@@ -161,31 +167,22 @@ def escape(cmd):
 
 def get_answer():
     fd = coqtop.stdout.fileno()
+    messageNode = None
     data = ''
     while True:
         try:
             data += os.read(fd, 0x4000)
             try:
                 elt = ET.fromstring('<coqtoproot>' + escape(data) + '</coqtoproot>')
-                shouldWait = True
-                valueNode = None
-                messageNode = None
-                for c in elt:
-                    if c.tag == 'value':
-                        shouldWait = False
-                        valueNode = c
-                    if c.tag == 'message':
-                        if messageNode is not None:
-                            messageNode = messageNode + "\n\n" + parse_value(c[2])
-                        else:
-                            messageNode = parse_value(c[2])
-                if shouldWait:
+                valueNode = elt.find('./value')
+                messageNode = elt.find('./feedback/feedback_content/message')
+                if valueNode is None:
                     continue
                 else:
                     vp = parse_response(valueNode)
                     if messageNode is not None:
                         if isinstance(vp, Ok):
-                            return Ok(vp.val, messageNode)
+                            return Ok(vp.val, format_info_response(messageNode))
                     return vp
             except ET.ParseError:
                 continue
@@ -207,11 +204,10 @@ def restart_coq(*args):
     global coqtop, root_state, state_id
     if coqtop: kill_coqtop()
     options = [ 'coqtop'
-              , '-ideslave'
+              , '-toploop'
+              , 'coqidetop'
               , '-main-channel'
               , 'stdfds'
-              , '-async-proofs'
-              , 'on'
               ]
     try:
         if os.name == 'nt':
@@ -245,6 +241,10 @@ def cur_state():
     else:
         return state_id
 
+def cur_route():
+    global route_id
+    return RouteId(route_id)
+
 def advance(cmd, encoding = 'utf-8'):
     global state_id
     r = call('Add', ((cmd, -1), (cur_state(), True)), encoding)
@@ -265,7 +265,7 @@ def rewind(step = 1):
     return call('Edit_at', state_id)
 
 def query(cmd, encoding = 'utf-8'):
-    r = call('Query', (cmd, cur_state()), encoding)
+    r = call('Query', (cur_route(), (cmd, cur_state())), encoding)
     return r
 
 def goals():
@@ -273,3 +273,9 @@ def goals():
 
 def read_states():
     return states
+
+def format_info_response(xml):
+    res = ""
+    for text in xml.itertext():
+        res = res + text
+    return res
