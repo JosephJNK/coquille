@@ -1,4 +1,6 @@
-Note: This is a fork of the plugin at https://github.com/the-lambda-church/coquille that seeks to address some issues with newer versions of Coq. This fork contains some fixes, but some of its behavior is incomplete.
+Note: This is a fork of the plugin at https://github.com/the-lambda-church/coquille that seeks to address some issues with newer versions of Coq. This fork contains some fixes, but is incompletely tested and some of its behavior is incomplete.
+
+Additionally, this fork removes the `master` branch of the original and replaces it with the `pathogen-bundle` branch, enabling this repo to be used by those who use [Plug](https://github.com/junegunn/vim-plug) rather than Pathogen.
 
 Coquille
 ========
